@@ -1,0 +1,81 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta
+import io
+
+st.set_page_config(layout="wide")
+
+st.title("🏗 Construction Scheduler App")
+
+# Sidebar inputs
+st.sidebar.header("➕ Create Task")
+
+project = st.sidebar.text_input("Project Name")
+task = st.sidebar.text_input("Task Name")
+start_date = st.sidebar.date_input("Start Date", datetime.today())
+end_date = st.sidebar.date_input("End Date", datetime.today() + timedelta(days=1))
+labour = st.sidebar.text_input("Assigned Labour (comma-separated)")
+equipment = st.sidebar.text_input("Assigned Equipment (comma-separated)")
+
+if "schedule" not in st.session_state:
+    st.session_state.schedule = pd.DataFrame(columns=[
+        "Project", "Task", "Start Date", "End Date", "Labour", "Equipment"
+    ])
+
+if st.sidebar.button("Add Task"):
+    new_entry = {
+        "Project": project,
+        "Task": task,
+        "Start Date": pd.to_datetime(start_date),
+        "End Date": pd.to_datetime(end_date),
+        "Labour": [x.strip() for x in labour.split(",") if x.strip()],
+        "Equipment": [x.strip() for x in equipment.split(",") if x.strip()],
+    }
+    st.session_state.schedule = st.session_state.schedule.append(new_entry, ignore_index=True)
+
+# Export button
+def convert_df(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Schedule')
+    return output.getvalue()
+
+st.markdown("### 📆 Weekly Schedule View")
+
+df = st.session_state.schedule
+
+if not df.empty:
+    # Expand labours and equipment columns for viewing
+    df_display = df.copy()
+    df_display["Labour"] = df_display["Labour"].apply(lambda x: ", ".join(x))
+    df_display["Equipment"] = df_display["Equipment"].apply(lambda x: ", ".join(x))
+    st.dataframe(df_display)
+
+    excel_data = convert_df(df_display)
+    st.download_button("📥 Export to Excel", excel_data, "schedule.xlsx")
+
+else:
+    st.info("No tasks scheduled yet.")
+
+# Show bench view
+st.markdown("### 👥 Bench (Unassigned Labour / Equipment)")
+all_labour = set(x for sublist in df["Labour"] for x in sublist) if not df.empty else set()
+all_equipment = set(x for sublist in df["Equipment"] for x in sublist) if not df.empty else set()
+
+assigned_labour = set()
+assigned_equipment = set()
+for _, row in df.iterrows():
+    assigned_labour.update(row["Labour"])
+    assigned_equipment.update(row["Equipment"])
+
+bench_labour = sorted(all_labour - assigned_labour)
+bench_equipment = sorted(all_equipment - assigned_equipment)
+
+col1, col2 = st.columns(2)
+with col1:
+    st.write("**Labour Not Assigned:**")
+    st.write(bench_labour or "None")
+
+with col2:
+    st.write("**Equipment Not Assigned:**")
+    st.write(bench_equipment or "None")
